@@ -6,13 +6,84 @@
 #include <sys/mman.h>
 #include <asm/ptrace.h>
 #include <dlfcn.h>
-
+#include <dirent.h>
 #include <utils/PrintLog.h>
 #include "system.h"
 #include "dbghlp.h"
 
 #include "../base_types.h"
 #include "dir.h"
+
+bool SystemInterface::is_exec(pid_t pid, uint32_t addr)
+{
+	bool ret = false;
+	FILE *fp = NULL;
+	char line[MAX_FILE_NAME_LEN] = {0};
+	char file_name[MAX_FILE_NAME_LEN] = {0};
+	uint32_t start = 0;
+	uint32_t end = 0;
+	do {
+		// 暂时仅处理当前进程
+	    if (pid < 0) {
+	        //  枚举自身进程模块
+	        snprintf(file_name, MAX_FILE_NAME_LEN-1, "/proc/self/maps");
+	    } else {
+	        snprintf(file_name, MAX_FILE_NAME_LEN-1, "/proc/%d/maps", pid);
+	    }
+		fp = fopen(file_name, "r");
+		if (fp == NULL) {
+			break;
+		}
+		while (fgets(line, sizeof(line), fp)) {
+			if (strstr(line, "r-xp")) {
+				start = strtoul(strtok(line, "-"), NULL, 16);
+				end = strtoul(strtok(NULL, " "), NULL, 16);
+				if (addr >= start && addr <= end) {
+					ret = true;
+					break;
+				}
+			}
+		}
+		fclose(fp);
+		break;
+	}while(false);
+	return ret;
+}
+
+size_t SystemInterface::get_threads(pid_t pid, std::vector<pid_t> &tids){
+	char dir_path[32] = {0};
+	DIR *dir = NULL;
+	struct dirent *entry = NULL;
+	pid_t tid = 0;
+
+	if (pid < 0) {
+		snprintf(dir_path, sizeof(dir_path), "/proc/self/task");
+	}
+	else {
+		snprintf(dir_path, sizeof(dir_path), "/proc/%d/task", pid);
+	}
+	LOGD("get_threads : %s dir_path", dir_path);
+	do {
+		dir = opendir(dir_path);
+	    if (dir == NULL) {
+	    	break;
+	    }
+	    do {
+	    	entry = readdir(dir);
+	    	if (NULL == entry) {
+	    		break;
+	    	}
+	    	LOGD("entry->d_name : %s", entry->d_name);
+	    	tid = atoi(entry->d_name);
+
+	    	if (tid != 0 && tid != getpid()) {
+	    		tids.push_back(tid);
+	    	}
+	    } while (true);
+	    closedir(dir);
+	}while(false);
+	return tids.size();
+}
 
 size_t SystemInterface::enum_system_process(std::vector<pid_t> &pid_list) {
 	if (!pid_list.empty())
@@ -251,15 +322,18 @@ bool SystemInterface::write_process_memory(pid_t pid, uint8_t *base, uint8_t *bu
 	}
 }
 
-bool SystemInterface::virtual_protect(pid_t pid, uint8_t *base, size_t page_protect) {
+bool SystemInterface::virtual_protect(pid_t pid, uint8_t *buf, size_t buf_size, size_t page_protect) {
 	// 暂时仅支持当前进程
 	if (-1 == pid) {
-		uint32_t pagesize = sysconf(_SC_PAGESIZE);
-		uint32_t pagestart = (uint32_t)base & (~(pagesize-1));
-		if(-1 ==  mprotect((void *) pagestart, (pagesize), page_protect)){
-	        LOGE("[-] mprotect error");
-	        return false;
-	    }
+		uint32_t page_size = sysconf(_SC_PAGESIZE);
+		uint32_t page_start = (uint32_t)buf & (~(page_size-1));
+		uint32_t page_count = (buf_size / page_size) + 1;
+		for (uint32_t i = 0; i < page_count; ++i) {
+			if(-1 ==  mprotect((void *)(page_start + i * page_size), (page_size), page_protect)){
+		        LOGE("[-] mprotect error");
+		        return false;
+		    }
+		}
 	    return true;
 	}
 	return false;

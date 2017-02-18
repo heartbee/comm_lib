@@ -13,6 +13,8 @@ public:
 
 class SystemInterface{
 public:
+	static bool is_exec(pid_t pid, uint32_t addr);
+	static size_t get_threads(pid_t pid, std::vector<pid_t> &tids);
 	static size_t enum_system_process(std::vector<pid_t> &pid_list);
 	static bool get_process_name(pid_t pid, std::string &process_name);
 	static bool get_process_name_from_cmdline(pid_t pid, std::string &process_name);
@@ -29,7 +31,7 @@ public:
 	static size_t read_process_memory(pid_t pid, uint8_t * base, uint8_t * buf, size_t size, bool & may_failed);
 	static bool write_process_memory(pid_t pid, uint8_t *base, uint8_t *buf, size_t size);
 
-	static bool virtual_protect(pid_t pid, uint8_t *base, size_t page_protect);
+	static bool virtual_protect(pid_t pid, uint8_t *buf, size_t buf_size, size_t page_protect);
 
 	static size_t get_remote_func_addr(pid_t pid, std::string &module_name, size_t local_func_addr);
 	static size_t get_remote_func_addr(pid_t pid, std::string &module_name, std::string &func_name);
